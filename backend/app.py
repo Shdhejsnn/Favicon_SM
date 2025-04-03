@@ -41,6 +41,30 @@ def serve_frontend(path):
     # Fallback to your original home route
     return home()
 
+@app.route("/api/insights", methods=["GET"])
+async def get_insights():
+    """Endpoint for real-time AI research insights"""
+    try:
+        # Get trending topics from arXiv (last 7 days)
+        trending_topics = await research_system.web_extractor.fetch_recent_trends()
+        
+        # Get citation data from Semantic Scholar
+        citation_data = await research_system.web_extractor.fetch_citation_trends()
+        
+        return jsonify({
+            "status": "success",
+            "trends": trending_topics,
+            "citations": citation_data,
+            "timestamp": datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to fetch insights: {str(e)}")
+        return jsonify({
+            "error": f"Failed to fetch insights: {str(e)}",
+            "status": "error"
+        }), 500
+    
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
