@@ -4,10 +4,12 @@ import logging
 import requests
 import os
 from dotenv import load_dotenv
-from main import ResearchSystem  # Import your research system
+from main import ResearchSystem  
+from flask import send_from_directory  # Add this to existing imports
+from pathlib import Path# Import your research system
 
 # Initialize Flask app
-app = Flask(__name__)
+app = Flask(__name__, static_folder='../dist')
 CORS(app)
 
 # Configure logging
@@ -21,6 +23,23 @@ load_dotenv()  # Load from .env file in the same directory
 research_system = ResearchSystem()  # Your research dashboard system
 GEMINI_MODEL = "models/gemini-1.5-flash"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_frontend(path):
+    # First try to serve API routes
+    if path.startswith(('research', 'innovation/generate')):
+        return home()  # Fallback to your original route
+    
+    # Then try to serve frontend files
+    dist_dir = Path(__file__).parent.parent / 'dist'
+    if path and (dist_dir / path).exists():
+        return send_from_directory(dist_dir, path)
+    elif (dist_dir / 'index.html').exists():
+        return send_from_directory(dist_dir, 'index.html')
+    
+    # Fallback to your original home route
+    return home()
 
 @app.route("/", methods=["GET"])
 def home():

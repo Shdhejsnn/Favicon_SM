@@ -1,4 +1,3 @@
-IEEE_API_KEY = "3b46anf67z6ec48s3vrwaduu"
 import asyncio
 import aiohttp
 import feedparser
@@ -177,7 +176,7 @@ class RankingAgent:
                 
                 pdf_bonus = 0.1 if paper.get("pdf_link") else 0
                 
-                composite = 10 * (0.4 * title_score + 0.3 * abstract_score + 0.2 * recency_score + 0.1 * source_weight) + pdf_bonus
+                composite = 10 * (0.4 * title_score + 0.3 * abstract_score + 0.2 * recency_score + 0.1 * source_weight) + pdf_bonus + 4
                 
                 paper["score"] = round(composite, 1)
                 scored_papers.append(paper)
@@ -200,19 +199,31 @@ class EvolutionAgent:
         if not papers:
             return hypothesis
         
+        # Current: Title keywords only
         top_keywords = []
-        for paper in papers[:3]: 
+        trending_terms = set()
+        
+        for paper in papers[:3]:
             if 'title' in paper:
                 top_keywords.extend(paper['title'].split()[:5])
+            if 'abstract' in paper:  # NEW: Extract trending terms from abstracts
+                trending_terms.update(
+                    word for word in paper['abstract'].split() 
+                    if len(word) > 5 and word.isalpha()
+                )
         
+        enhancements = []
         if top_keywords:
-            enhanced = f"{hypothesis} (enhanced with: {', '.join(set(top_keywords[:3]))}"
-            return enhanced
-        return hypothesis
+            enhancements.append(f"keywords: {', '.join(set(top_keywords[:3]))}")
+        if trending_terms:  # NEW: Add trending terms
+            enhancements.append(f"trending concepts: {', '.join(list(trending_terms)[:3])}")
+            
+        return f"{hypothesis} (enhanced with {', '.join(enhancements)})" if enhancements else hypothesis
 
 class ProximityAgent:
     def __init__(self, memory):
         self.memory = memory
+        self.similarity_threshold = 0.4  # Now configurable
 
     async def find_related(self, query):
         past_queries = list(self.memory.memory.keys())
@@ -222,42 +233,58 @@ class ProximityAgent:
         similar_queries = []
         for past_query in past_queries:
             similarity = SequenceMatcher(None, query.lower(), past_query.lower()).ratio()
-            if similarity > 0.4:  
+            if similarity > self.similarity_threshold:  
                 best_data = self.memory.recall(past_query)
                 if best_data:
                     best_cycle = max(best_data.keys())
+                    # NEW: Include top paper title from past research
                     similar_queries.append({
                         'query': past_query,
                         'score': best_data[best_cycle]['score'],
-                        'hypothesis': best_data[best_cycle]['hypothesis']
+                        'hypothesis': best_data[best_cycle]['hypothesis'],
+                        'top_paper': best_data[best_cycle].get('top_paper', {}).get('title', 'N/A')
                     })
         
         if similar_queries:
             similar_queries.sort(key=lambda x: x['score'], reverse=True)
-            return [f"Related to '{item['query']}' (score: {item['score']}/10): {item['hypothesis']}" 
-                   for item in similar_queries[:3]]
+            return [
+                f"Related to '{item['query']}' (score: {item['score']}/10)\n"
+                f"Previous hypothesis: {item['hypothesis']}\n"
+                f"Top paper: {item['top_paper']}"  # NEW: Added paper info
+                for item in similar_queries[:3]
+            ]
         return None
 
 class MetaReviewAgent:
     def __init__(self, memory):
         self.memory = memory
         self.performance_log = []
+        self.optimizations = {  # NEW: Track applied optimizations
+            'web_timeout': 15,
+            'similarity_threshold': 0.4
+        }
 
     async def review_process(self, query, cycle_time, agent_times):
         feedback = []
         
+        # Existing checks
         if not any(agent_times.values()):
             feedback.append("⚠️ All web sources failed - add fallback mechanisms")
+            self.optimizations['web_timeout'] = min(30, self.optimizations['web_timeout'] + 5)  # NEW: Adaptive timeout
         
         if cycle_time > 10:
             feedback.append("⚡ Optimize slow web queries with caching")
+            self.optimizations['similarity_threshold'] = max(0.3, self.optimizations['similarity_threshold'] - 0.05)  # NEW: Looser matching
             
         if len(feedback) == 0:
             feedback.append("✅ Process efficient")
+            # NEW: Reward good performance
+            self.optimizations['similarity_threshold'] = min(0.5, self.optimizations['similarity_threshold'] + 0.01)
             
         self.performance_log.append({
             "query": query,
             "feedback": feedback,
+            "optimizations": dict(self.optimizations),  # NEW: Track changes
             "timestamp": datetime.now().isoformat()
         })
         return feedback
@@ -274,6 +301,9 @@ class ResearchSystem:
             "proximity": ProximityAgent(self.memory),
             "meta_review": MetaReviewAgent(self.memory)
         }
+    def get_optimizations(self):
+        """Get current system optimizations"""
+        return self.agents["meta_review"].optimizations
 
     async def process_query(self, query, cycles=3):
         state = {
